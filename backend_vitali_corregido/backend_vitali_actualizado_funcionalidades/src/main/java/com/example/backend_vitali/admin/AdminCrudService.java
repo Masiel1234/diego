@@ -40,6 +40,7 @@ public class AdminCrudService {
     private final FamilyLinkRepository linkRepository;
     private final AuditService auditService;
     private final JdbcTemplate jdbc;
+    private final com.example.backend_vitali.doctor.DoctorCapacityService doctorCapacity;
 
     public AdminCrudService(
             UserRepository userRepository,
@@ -47,8 +48,10 @@ public class AdminCrudService {
             FamilyRepository familyRepository,
             FamilyLinkRepository linkRepository,
             AuditService auditService,
-            JdbcTemplate jdbc
+            JdbcTemplate jdbc,
+            com.example.backend_vitali.doctor.DoctorCapacityService doctorCapacity
     ) {
+        this.doctorCapacity = doctorCapacity;
         this.userRepository = userRepository;
         this.patientRepository = patientRepository;
         this.familyRepository = familyRepository;
@@ -65,12 +68,23 @@ public class AdminCrudService {
     public List<AdminPatientResponse> listPatients(String search) {
         String term = search == null ? "" : search.trim().toLowerCase(Locale.ROOT);
 
+        // Vínculos y perfiles se cargan una vez (antes se repetía por cada paciente: N+1).
+        List<FamilyLink> links = validLinks();
+        Map<Long, PatientProfile> profiles = new java.util.HashMap<>();
+        patientRepository.findAll().forEach(p -> profiles.put(p.getUser().getId(), p));
+
         return userRepository.findByRole(Role.PATIENT).stream()
                 .filter(u -> term.isEmpty()
                         || u.getFullName().toLowerCase(Locale.ROOT).contains(term)
                         || u.getEmail().toLowerCase(Locale.ROOT).contains(term))
-                .map(this::toPatientResponse)
+                .sorted(AppUser.NEWEST_FIRST)
+                .map(u -> toPatientResponse(u, profiles.get(u.getId()), links))
                 .toList();
+    }
+
+    /** Vínculos cuyo paciente y familiar siguen existiendo. */
+    private List<FamilyLink> validLinks() {
+        return linkRepository.findAll().stream().filter(this::isLinkValid).toList();
     }
 
     @Transactional(readOnly = true)
@@ -107,6 +121,8 @@ public class AdminCrudService {
                     .filter(d -> d.getRole() == Role.DOCTOR && d.getStatus() == AccountStatus.ACTIVE)
                     .orElseThrow(() -> new ResponseStatusException(
                             HttpStatus.BAD_REQUEST, "Médico no disponible."));
+            doctorCapacity.assertCanAccept(doctor,
+                    profile.getAssignedDoctor() == null ? null : profile.getAssignedDoctor().getId());
             profile.setAssignedDoctor(doctor);
         }
 
@@ -116,12 +132,14 @@ public class AdminCrudService {
     }
 
     private AdminPatientResponse toPatientResponse(AppUser user) {
-        PatientProfile p = patientRepository.findByUserId(user.getId()).orElse(null);
+        return toPatientResponse(user, patientRepository.findByUserId(user.getId()).orElse(null), validLinks());
+    }
+
+    private AdminPatientResponse toPatientResponse(AppUser user, PatientProfile p, List<FamilyLink> links) {
         AppUser doctor = p == null ? null : p.getAssignedDoctor();
 
-        List<AdminFamilyRef> families = linkRepository.findAll().stream()
+        List<AdminFamilyRef> families = links.stream()
                 .filter(l -> l.getPatient().getId().equals(user.getId()))
-                .filter(this::isLinkValid)
                 .map(l -> new AdminFamilyRef(
                         l.getId(), l.getFamily().getId(), l.getFamily().getFullName(),
                         l.getRelationship(), l.isActive()))
@@ -152,11 +170,16 @@ public class AdminCrudService {
     public List<AdminFamilyResponse> listFamilies(String search) {
         String term = search == null ? "" : search.trim().toLowerCase(Locale.ROOT);
 
+        List<FamilyLink> links = validLinks();
+        Map<Long, FamilyProfile> profiles = new java.util.HashMap<>();
+        familyRepository.findAll().forEach(p -> profiles.put(p.getUser().getId(), p));
+
         return userRepository.findByRole(Role.FAMILY).stream()
                 .filter(u -> term.isEmpty()
                         || u.getFullName().toLowerCase(Locale.ROOT).contains(term)
                         || u.getEmail().toLowerCase(Locale.ROOT).contains(term))
-                .map(this::toFamilyResponse)
+                .sorted(AppUser.NEWEST_FIRST)
+                .map(u -> toFamilyResponse(u, profiles.get(u.getId()), links))
                 .toList();
     }
 
@@ -181,11 +204,12 @@ public class AdminCrudService {
     }
 
     private AdminFamilyResponse toFamilyResponse(AppUser user) {
-        FamilyProfile profile = familyRepository.findByUserId(user.getId()).orElse(null);
+        return toFamilyResponse(user, familyRepository.findByUserId(user.getId()).orElse(null), validLinks());
+    }
 
-        List<AdminPatientRef> patients = linkRepository.findAll().stream()
+    private AdminFamilyResponse toFamilyResponse(AppUser user, FamilyProfile profile, List<FamilyLink> links) {
+        List<AdminPatientRef> patients = links.stream()
                 .filter(l -> l.getFamily().getId().equals(user.getId()))
-                .filter(this::isLinkValid)
                 .map(l -> new AdminPatientRef(
                         l.getId(), l.getPatient().getId(), l.getPatient().getFullName(),
                         l.getRelationship(), l.isActive()))
@@ -342,6 +366,7 @@ public class AdminCrudService {
     public void deleteRecipe(Long recipeId) {
         // Las consultas médicas pueden referenciar la receta.
         jdbc.update("UPDATE consulta_medica SET id_receta = NULL WHERE id_receta = ?", recipeId);
+        jdbc.update("UPDATE receta_documento SET id_receta = NULL WHERE id_receta = ?", recipeId);
         jdbc.update("DELETE FROM detalle_receta WHERE id_receta = ?", recipeId);
         int n = jdbc.update("DELETE FROM receta WHERE id = ?", recipeId);
         if (n == 0) {

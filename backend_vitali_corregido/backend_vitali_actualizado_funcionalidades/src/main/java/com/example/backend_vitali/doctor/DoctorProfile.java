@@ -44,7 +44,9 @@ public class DoctorProfile {
     @Column(name = "document_type", length = 20) private String documentType;
     @Column(name = "document_number", length = 50) private String documentNumber;
     @Column(length = 30) private String phone;
-    @Column(name = "birth_date") private LocalDate birthDate;
+    @Column(name = "birth_date")
+    @Convert(converter = com.example.backend_vitali.common.SqliteLocalDateConverter.class)
+    private LocalDate birthDate;
     @Column(length = 180) private String university;
     @Column(name = "graduation_year") private Integer graduationYear;
     @Column(name = "years_experience") private Integer yearsExperience;

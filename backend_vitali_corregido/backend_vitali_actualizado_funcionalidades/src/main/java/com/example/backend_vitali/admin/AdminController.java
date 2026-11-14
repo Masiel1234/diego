@@ -82,6 +82,16 @@ public class AdminController {
         return ResponseEntity.noContent().build();
     }
 
+    @GetMapping("/doctors/load")
+    public List<java.util.Map<String, Object>> getDoctorLoad() {
+        return adminService.getDoctorLoad();
+    }
+
+    @GetMapping("/doctors/{doctorId}/patients")
+    public List<java.util.Map<String, Object>> getDoctorPatients(@PathVariable Long doctorId) {
+        return adminService.getDoctorPatients(doctorId);
+    }
+
     @GetMapping("/links")
     public List<AdminDtos.AdminLinkResponse> getLinks() {
         return adminService.getLinks();

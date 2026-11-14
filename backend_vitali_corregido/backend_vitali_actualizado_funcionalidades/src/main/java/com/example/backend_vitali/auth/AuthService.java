@@ -161,8 +161,10 @@ public class AuthService {
 
     /**
      * Inicio de sesión.
+     * Sin @Transactional a propósito: la verificación BCrypt tarda ~100 ms y,
+     * con un pool de una sola conexión (SQLite), retenerla bloqueaba al resto
+     * de requests mientras tanto.
      */
-    @Transactional(readOnly = true)
     public LoginResponse login(LoginRequest request) {
 
         String email = normalizeEmail(request.email());
@@ -200,6 +202,18 @@ public class AuthService {
                 token,
                 authMapper.toUserResponse(user)
         );
+    }
+
+    /**
+     * Emite un token nuevo para el usuario autenticado (sesión deslizante).
+     * El frontend lo llama solo mientras hay actividad; si el usuario fue
+     * desactivado entretanto, ya no se renueva.
+     */
+    public LoginResponse refresh(Long userId) {
+        AppUser user = userRepository.findById(userId)
+                .filter(u -> u.getStatus() == AccountStatus.ACTIVE)
+                .orElseThrow(() -> new BadCredentialsException("La sesión ya no es válida. Inicia sesión de nuevo."));
+        return new LoginResponse(jwtService.generateToken(user), authMapper.toUserResponse(user));
     }
 
     /**

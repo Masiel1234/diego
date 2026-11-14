@@ -2,6 +2,9 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { fetchApi } from "@/lib/api";
+import TreatmentList, { matchesPatient, type PatientWithTreatments } from "@/components/TreatmentList";
+import AssignDoctorDialog, { type DoctorLoad } from "./AssignDoctorDialog";
+import AdminToast, { type ToastMessage } from "./AdminToast";
 
 /* ------------------------------------------------------------------ */
 /* Tipos                                                               */
@@ -23,7 +26,7 @@ type Recipe = { id: number; patientId: number; patientName: string | null; uploa
 type Medication = { name: string; activeIngredient: string | null; purpose: string | null; dosageAndAdministration: string | null; warnings: string | null; contraindications: string | null; drugInteractions: string | null; dosageForm: string | null; route: string | null };
 
 type Notify = { ok: (m: string) => void; fail: (e: unknown) => void };
-type FieldDef = { key: string; label: string; type?: "text" | "email" | "date" | "number" | "textarea" | "select"; options?: { value: string; label: string }[]; readOnly?: boolean; full?: boolean };
+type FieldDef = { key: string; label: string; type?: "text" | "email" | "date" | "number" | "textarea" | "select"; options?: { value: string; label: string; disabled?: boolean }[]; readOnly?: boolean; full?: boolean };
 type Values = Record<string, string>;
 
 const STATUS_OPTIONS = [
@@ -65,7 +68,7 @@ function FormModal({ title, fields, initial, readOnly, onSave, onClose }: {
                 <textarea rows={3} disabled={readOnly || f.readOnly} value={values[f.key] ?? ""} onChange={(e) => setValues({ ...values, [f.key]: e.target.value })} className={input} />
               ) : f.type === "select" ? (
                 <select disabled={readOnly || f.readOnly} value={values[f.key] ?? ""} onChange={(e) => setValues({ ...values, [f.key]: e.target.value })} className={input}>
-                  {f.options?.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  {f.options?.map((o) => <option key={o.value} value={o.value} disabled={o.disabled}>{o.label}</option>)}
                 </select>
               ) : (
                 <input type={f.type ?? "text"} step={f.type === "number" ? "any" : undefined} disabled={readOnly || f.readOnly} value={values[f.key] ?? ""} onChange={(e) => setValues({ ...values, [f.key]: e.target.value })} className={input} />
@@ -101,7 +104,7 @@ const SearchBar = ({ value, onChange, onSearch, extra }: { value: string; onChan
 /* ------------------------------------------------------------------ */
 function PatientsTab({ n }: { n: Notify }) {
   const [rows, setRows] = useState<Patient[]>([]);
-  const [doctors, setDoctors] = useState<UserLite[]>([]);
+  const [doctors, setDoctors] = useState<DoctorLoad[]>([]);
   const [search, setSearch] = useState("");
   const [modal, setModal] = useState<{ p: Patient; readOnly: boolean } | null>(null);
 
@@ -109,9 +112,9 @@ function PatientsTab({ n }: { n: Notify }) {
     try {
       const [p, d] = await Promise.all([
         fetchApi<Patient[]>(`/api/admin/patients?search=${encodeURIComponent(search)}`),
-        fetchApi<UserLite[]>("/api/admin/users?role=DOCTOR&status=ACTIVE"),
+        fetchApi<DoctorLoad[]>("/api/admin/doctors/load"),
       ]);
-      setRows(p); setDoctors(d);
+      setRows(p); setDoctors(d.filter((x) => x.status === "ACTIVE"));
     } catch (e) { n.fail(e); }
   }, [search]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { void load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -119,7 +122,10 @@ function PatientsTab({ n }: { n: Notify }) {
   const fields: FieldDef[] = [
     { key: "fullName", label: "Nombre completo" }, { key: "email", label: "Correo", type: "email" },
     { key: "status", label: "Estado", type: "select", options: STATUS_OPTIONS },
-    { key: "assignedDoctorId", label: "Médico asignado", type: "select", options: [{ value: "", label: "Sin asignar" }, ...doctors.map((d) => ({ value: String(d.id), label: `${d.fullName} (ID ${d.id})` }))] },
+    { key: "assignedDoctorId", label: "Médico asignado", type: "select", options: [{ value: "", label: "Sin asignar" }, ...doctors.map((d) => {
+      const blocked = d.full && d.id !== modal?.p.assignedDoctorId;
+      return { value: String(d.id), label: `${d.fullName} · ${d.assignedPatients}/${d.maxPatients} pacientes${blocked ? " — cupo lleno" : ""}`, disabled: blocked };
+    })] },
     { key: "birthDate", label: "Fecha de nacimiento", type: "date" }, { key: "phone", label: "Teléfono" },
     { key: "documentType", label: "Tipo de documento" }, { key: "documentNumber", label: "Número de documento" },
     { key: "bloodType", label: "Grupo sanguíneo" }, { key: "weight", label: "Peso (kg)", type: "number" },
@@ -161,6 +167,152 @@ function PatientsTab({ n }: { n: Notify }) {
       {modal && <FormModal title={modal.readOnly ? `Paciente: ${modal.p.fullName}` : `Editar paciente: ${modal.p.fullName}`} fields={fields} readOnly={modal.readOnly}
         initial={{ fullName: s(modal.p.fullName), email: s(modal.p.email), status: s(modal.p.status), assignedDoctorId: s(modal.p.assignedDoctorId), birthDate: s(modal.p.birthDate), phone: s(modal.p.phone), documentType: s(modal.p.documentType), documentNumber: s(modal.p.documentNumber), bloodType: s(modal.p.bloodType), weight: s(modal.p.weight), height: s(modal.p.height), conditions: s(modal.p.conditions), medications: s(modal.p.medications) }}
         onSave={(v) => save(modal.p, v)} onClose={() => setModal(null)} />}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Médicos                                                             */
+/* ------------------------------------------------------------------ */
+function DoctorPatientsModal({ doctor, maxPatients, n, onClose }: { doctor: UserLite; maxPatients: number; n: Notify; onClose: () => void }) {
+  const [assigned, setAssigned] = useState<PatientWithTreatments[]>([]);
+  const [allPatients, setAllPatients] = useState<Patient[]>([]);
+  const [filter, setFilter] = useState("");
+  const [toAssign, setToAssign] = useState("");
+  const [busy, setBusy] = useState(false);
+  const active = doctor.status === "ACTIVE";
+
+  const load = useCallback(async () => {
+    try {
+      const [a, p] = await Promise.all([
+        fetchApi<PatientWithTreatments[]>(`/api/admin/doctors/${doctor.id}/patients`),
+        fetchApi<Patient[]>("/api/admin/patients"),
+      ]);
+      setAssigned(a); setAllPatients(p);
+    } catch (e) { n.fail(e); }
+  }, [doctor.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { void load(); }, [load]);
+
+  async function setDoctor(patientId: number, doctorId: number | null, okMsg: string) {
+    setBusy(true);
+    try {
+      await fetchApi(`/api/admin/patients/${patientId}/doctor`, { method: "PATCH", body: JSON.stringify({ doctorId }) });
+      n.ok(okMsg); setToAssign(""); await load();
+    } catch (e) { n.fail(e); } finally { setBusy(false); }
+  }
+
+  const candidates = allPatients.filter((p) => p.assignedDoctorId !== doctor.id);
+  const visible = assigned.filter((p) => matchesPatient(p, filter));
+  const full = assigned.length >= maxPatients;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
+        <div className="flex items-start justify-between gap-3">
+          <div><h3 className="text-lg font-bold">Pacientes de {doctor.fullName}</h3><p className="text-xs text-slate-500">{doctor.email}</p><p className={`mt-1 inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold ${full ? "bg-red-100 text-red-700" : "bg-teal-50 text-teal-800"}`}>{assigned.length}/{maxPatients} pacientes{full ? " · cupo lleno" : ""}</p></div>
+          <button onClick={onClose} className="rounded-lg border px-3 py-1 text-sm font-semibold">Cerrar</button>
+        </div>
+
+        <div className="mt-4 rounded-xl border border-teal-100 bg-teal-50/40 p-4">
+          <p className="text-sm font-semibold text-slate-800">Asignar paciente a este médico</p>
+          {!active ? <p className="mt-1 text-xs text-amber-700">Solo se pueden asignar pacientes a médicos con estado Activo.</p>
+          : full ? <p className="mt-1 text-xs text-red-700">Este médico completó su cupo de {maxPatients} pacientes. Quita un paciente de su lista para poder asignarle otro.</p>
+          : (
+            <div className="mt-2 flex flex-wrap gap-2">
+              <select value={toAssign} onChange={(e) => setToAssign(e.target.value)} className="min-w-0 flex-1 rounded-xl border p-2 text-sm">
+                <option value="">Selecciona un paciente...</option>
+                {candidates.map((p) => <option key={p.userId} value={p.userId}>{p.fullName} ({p.email}){p.assignedDoctorName ? ` · actual: ${p.assignedDoctorName}` : ""}</option>)}
+              </select>
+              <button disabled={!toAssign || busy} onClick={() => void setDoctor(Number(toAssign), doctor.id, "Paciente asignado al médico.")} className="rounded-xl bg-teal-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">Asignar</button>
+            </div>
+          )}
+          <p className="mt-2 text-xs text-slate-500">Si el paciente ya tenía otro médico, se reemplaza por este.</p>
+        </div>
+
+        <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Buscar paciente por nombre, correo o medicamento..." className="mt-4 w-full rounded-xl border p-2 text-sm" />
+        <div className="mt-3 space-y-3">
+          {visible.map((p) => (
+            <div key={p.patientId} className="rounded-xl border border-slate-200 p-4">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div><b>{p.fullName}</b><p className="text-xs text-slate-500">{p.email} · ID {p.patientId}</p>{p.conditions && <p className="mt-1 text-xs text-slate-600">Condiciones: {p.conditions}</p>}</div>
+                <button disabled={busy} onClick={() => { if (window.confirm(`¿Quitar a ${p.fullName} de ${doctor.fullName}?`)) void setDoctor(p.patientId, null, "Asignación eliminada."); }} className="rounded-lg border border-red-200 px-2 py-1 text-xs font-semibold text-red-700">Quitar</button>
+              </div>
+              <p className="mb-1 mt-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Tratamiento</p>
+              <TreatmentList treatments={p.treatments} medications={p.medications} />
+            </div>
+          ))}
+          {!visible.length && <p className="rounded-xl border border-dashed p-6 text-center text-sm text-slate-500">{assigned.length ? "Ningún paciente coincide con la búsqueda." : "Este médico aún no tiene pacientes asignados."}</p>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DoctorsTab({ n }: { n: Notify }) {
+  const [rows, setRows] = useState<UserLite[]>([]);
+  const [search, setSearch] = useState("");
+  const [status, setStatus] = useState("");
+  const [modal, setModal] = useState<{ d: UserLite; readOnly: boolean } | null>(null);
+  const [patientsOf, setPatientsOf] = useState<UserLite | null>(null);
+  const [loadById, setLoadById] = useState<Record<number, DoctorLoad>>({});
+
+  const load = useCallback(async () => {
+    try {
+      const q = new URLSearchParams({ role: "DOCTOR" });
+      if (search) q.set("search", search);
+      if (status) q.set("status", status);
+      const [users, capacity] = await Promise.all([
+        fetchApi<UserLite[]>(`/api/admin/users?${q}`),
+        fetchApi<DoctorLoad[]>("/api/admin/doctors/load"),
+      ]);
+      setRows(users);
+      setLoadById(Object.fromEntries(capacity.map((c) => [c.id, c])));
+    } catch (e) { n.fail(e); }
+  }, [search, status]); // eslint-disable-line react-hooks/exhaustive-deps
+  const maxPatients = Object.values(loadById)[0]?.maxPatients ?? 5;
+  useEffect(() => { void load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const fields: FieldDef[] = [
+    { key: "fullName", label: "Nombre completo" }, { key: "email", label: "Correo", type: "email" },
+    { key: "status", label: "Estado", type: "select", options: STATUS_OPTIONS },
+  ];
+
+  async function save(d: UserLite, v: Values) {
+    try {
+      await fetchApi(`/api/admin/users/${d.id}`, { method: "PUT", body: JSON.stringify({ fullName: v.fullName, email: v.email, role: d.role, status: v.status }) });
+      n.ok("Médico actualizado."); await load();
+    } catch (e) { n.fail(e); throw e; }
+  }
+  async function remove(d: UserLite) {
+    if (!window.confirm(`¿Eliminar al médico ${d.fullName}?`)) return;
+    try { await fetchApi(`/api/admin/users/${d.id}`, { method: "DELETE" }); n.ok("Médico eliminado."); await load(); } catch (e) { n.fail(e); }
+  }
+
+  return (
+    <div className="space-y-4">
+      <SearchBar value={search} onChange={setSearch} onSearch={() => void load()} extra={
+        <select value={status} onChange={(e) => setStatus(e.target.value)} className="rounded-xl border p-2 text-sm">
+          <option value="">Todos los estados</option>
+          {STATUS_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>} />
+      <div className="overflow-x-auto"><table className="w-full text-left text-sm">
+        <thead><tr className="border-b text-xs text-slate-500"><th className="p-3">Médico</th><th>Estado</th><th>Pacientes</th><th>Acciones</th></tr></thead>
+        <tbody>{rows.map((d) => {
+          const cap = loadById[d.id];
+          return (
+          <tr key={d.id} className="border-b last:border-0">
+            <td className="p-3"><b>{d.fullName}</b><div className="text-xs text-slate-500">{d.email} · ID {d.id}</div></td>
+            <td>{d.status}</td>
+            <td>{cap ? <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${cap.full ? "bg-red-100 text-red-700" : "bg-slate-100 text-slate-700"}`}>{cap.assignedPatients}/{cap.maxPatients}{cap.full ? " · lleno" : ""}</span> : "—"}</td>
+            <td className="space-x-1 whitespace-nowrap"><Btn onClick={() => setPatientsOf(d)}>Pacientes</Btn><Btn onClick={() => setModal({ d, readOnly: true })}>Ver</Btn><Btn onClick={() => setModal({ d, readOnly: false })}>Editar</Btn><Btn danger onClick={() => void remove(d)}>Eliminar</Btn></td>
+          </tr>);
+        })}
+          {!rows.length && <tr><td colSpan={4} className="p-4 text-slate-500">No hay médicos.</td></tr>}
+        </tbody></table></div>
+      {patientsOf && <DoctorPatientsModal doctor={patientsOf} maxPatients={loadById[patientsOf.id]?.maxPatients ?? maxPatients} n={n} onClose={() => { setPatientsOf(null); void load(); }} />}
+      {modal && <FormModal title={modal.readOnly ? `Médico: ${modal.d.fullName}` : `Editar médico: ${modal.d.fullName}`} fields={fields} readOnly={modal.readOnly}
+        initial={{ fullName: s(modal.d.fullName), email: s(modal.d.email), status: s(modal.d.status) }}
+        onSave={(v) => save(modal.d, v)} onClose={() => setModal(null)} />}
     </div>
   );
 }
@@ -260,11 +412,7 @@ function LinksTab({ n }: { n: Notify }) {
     if (!window.confirm(`¿Eliminar el vínculo entre ${l.patientName} y ${l.familyName}?`)) return;
     try { await fetchApi(`/api/admin/links/${l.id}`, { method: "DELETE" }); n.ok("Vínculo eliminado."); await load(); } catch (e) { n.fail(e); }
   }
-  async function assign(l: LinkRow) {
-    const doctor = window.prompt("ID del médico activo (déjalo vacío para cancelar)");
-    if (!doctor) return;
-    try { await fetchApi(`/api/admin/patients/${l.patientId}/doctor`, { method: "PATCH", body: JSON.stringify({ doctorId: Number(doctor) }) }); n.ok("Médico asignado."); await load(); } catch (e) { n.fail(e); }
-  }
+  const [assigning, setAssigning] = useState<LinkRow | null>(null);
 
   const initialOf = (l: LinkRow): Values => ({ patientName: l.patientName, familyName: l.familyName, relationship: s(l.relationship), active: String(l.active) });
 
@@ -278,12 +426,13 @@ function LinksTab({ n }: { n: Notify }) {
             <td className="p-3"><b>{l.patientName}</b><div className="text-xs text-slate-500">ID {l.patientId}</div></td>
             <td><b>{l.familyName}</b><div className="text-xs text-slate-500">ID {l.familyId}</div></td>
             <td>{l.relationship || "—"}</td><td>{l.doctorName || "Sin asignar"}</td><td><Badge on={l.active} no="Revocado" /></td>
-            <td className="space-x-1 whitespace-nowrap"><Btn onClick={() => setModal({ mode: "view", l })}>Ver</Btn><Btn onClick={() => setModal({ mode: "edit", l })}>Editar</Btn><Btn onClick={() => void assign(l)}>Médico</Btn><Btn danger onClick={() => void remove(l)}>Eliminar</Btn></td>
+            <td className="space-x-1 whitespace-nowrap"><Btn onClick={() => setModal({ mode: "view", l })}>Ver</Btn><Btn onClick={() => setModal({ mode: "edit", l })}>Editar</Btn><Btn onClick={() => setAssigning(l)}>Médico</Btn><Btn danger onClick={() => void remove(l)}>Eliminar</Btn></td>
           </tr>))}
           {!rows.length && <tr><td colSpan={6} className="p-4 text-slate-500">No hay vínculos.</td></tr>}
         </tbody></table></div>
       {modal?.mode === "create" && <FormModal title="Nuevo vínculo familiar" fields={createFields} initial={{ patientId: "", familyId: "", relationship: "", relationshipDetails: "" }} onSave={create} onClose={() => setModal(null)} />}
       {modal && modal.mode !== "create" && <FormModal title={modal.mode === "view" ? "Detalle del vínculo" : "Editar vínculo"} fields={editFields} readOnly={modal.mode === "view"} initial={initialOf(modal.l)} onSave={(v) => update(modal.l, v)} onClose={() => setModal(null)} />}
+      {assigning && <AssignDoctorDialog patientId={assigning.patientId} patientName={assigning.patientName} currentDoctorId={assigning.doctorId} onClose={() => setAssigning(null)} onDone={(m) => { n.ok(m); void load(); }} />}
     </div>
   );
 }
@@ -412,33 +561,33 @@ function MedicationsTab({ n }: { n: Notify }) {
 /* Contenedor con pestañas                                             */
 /* ------------------------------------------------------------------ */
 const TABS = [
-  { id: "patients", label: "Pacientes" }, { id: "families", label: "Familiares" }, { id: "links", label: "Vínculos" },
+  { id: "patients", label: "Pacientes" }, { id: "doctors", label: "Médicos" }, { id: "families", label: "Familiares" }, { id: "links", label: "Vínculos" },
   { id: "recipes", label: "Recetas" }, { id: "medications", label: "Medicamentos" },
 ] as const;
 
-export default function AdminCrud() {
+export default function AdminCrud({ refreshKey = 0, onChanged }: { refreshKey?: number; onChanged?: () => void }) {
   const [tab, setTab] = useState<(typeof TABS)[number]["id"]>("patients");
-  const [msg, setMsg] = useState("");
-  const [err, setErr] = useState("");
+  const [toast, setToast] = useState<ToastMessage | null>(null);
+  const closeToast = useCallback(() => setToast(null), []);
 
   const notify: Notify = {
-    ok: (m) => { setErr(""); setMsg(m); },
-    fail: (e) => { setMsg(""); setErr(e instanceof Error ? e.message : "Ocurrió un error."); },
+    ok: (m) => { setToast({ ok: true, text: m, id: Date.now() }); onChanged?.(); },
+    fail: (e) => setToast({ ok: false, text: e instanceof Error ? e.message : "Ocurrió un error.", id: Date.now() }),
   };
 
   return (
     <section className="rounded-2xl border bg-white p-5 shadow-sm">
       <h2 className="font-bold">Gestión de datos (consultar, editar y eliminar)</h2>
-      <p className="mt-1 text-sm text-slate-500">Pacientes, familiares, vínculos, recetas y catálogo de medicamentos.</p>
-      {err && <p className="mt-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">{err}</p>}
-      {msg && <p className="mt-4 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-800">{msg}</p>}
+      <p className="mt-1 text-sm text-slate-500">Pacientes, médicos, familiares, vínculos, recetas y catálogo de medicamentos.</p>
       <div className="mt-4 flex flex-wrap gap-2 border-b pb-3">
         {TABS.map((t) => (
-          <button key={t.id} onClick={() => { setTab(t.id); setErr(""); setMsg(""); }} className={`rounded-full px-4 py-1.5 text-sm font-semibold ${tab === t.id ? "bg-teal-700 text-white" : "border text-slate-600"}`}>{t.label}</button>
+          <button key={t.id} onClick={() => setTab(t.id)} className={`rounded-full px-4 py-1.5 text-sm font-semibold ${tab === t.id ? "bg-teal-700 text-white" : "border text-slate-600"}`}>{t.label}</button>
         ))}
       </div>
-      <div className="mt-4">
+      <AdminToast toast={toast} onClose={closeToast} />
+      <div className="mt-4" key={refreshKey}>
         {tab === "patients" && <PatientsTab n={notify} />}
+        {tab === "doctors" && <DoctorsTab n={notify} />}
         {tab === "families" && <FamiliesTab n={notify} />}
         {tab === "links" && <LinksTab n={notify} />}
         {tab === "recipes" && <RecipesTab n={notify} />}

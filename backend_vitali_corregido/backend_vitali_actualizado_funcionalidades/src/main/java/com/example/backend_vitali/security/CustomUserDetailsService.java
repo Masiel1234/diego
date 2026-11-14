@@ -60,6 +60,11 @@ public class CustomUserDetailsService
         return buildUserDetails(user);
     }
 
+    /** Construye el principal a partir de un usuario ya cargado (evita otra consulta). */
+    public UserDetails fromUser(AppUser user) {
+        return buildUserDetails(user);
+    }
+
     private UserDetails buildUserDetails(
             AppUser user
     ) {

@@ -15,7 +15,7 @@ export default function RegisterPage() {
  const [specialties,setSpecialties]=useState<string[]>(specialtiesFallback),[specialty,setSpecialty]=useState('');
  const [documentType,setDocumentType]=useState('CC'),[documentNumber,setDocumentNumber]=useState(''),[birthDate,setBirthDate]=useState(''),[phone,setPhone]=useState(''),[weight,setWeight]=useState(''),[height,setHeight]=useState(''),[conditions,setConditions]=useState('');
  const [professionalRegistration,setProfessionalRegistration]=useState(''),[doctorDocumentType,setDoctorDocumentType]=useState('CC'),[doctorDocumentNumber,setDoctorDocumentNumber]=useState(''),[doctorPhone,setDoctorPhone]=useState(''),[doctorBirthDate,setDoctorBirthDate]=useState(''),[university,setUniversity]=useState(''),[graduationYear,setGraduationYear]=useState(''),[yearsExperience,setYearsExperience]=useState(''),[consultationMode,setConsultationMode]=useState('PRESENCIAL'),[professionalBio,setProfessionalBio]=useState('');
- const [busy,setBusy]=useState(false),[error,setError]=useState(''),[success,setSuccess]=useState('');
+ const [busy,setBusy]=useState(false),[error,setError]=useState(''),[success,setSuccess]=useState(''),[doctorPending,setDoctorPending]=useState(false);
  useEffect(()=>{ fetchApi<Medicine[]>('/api/medicamentos').then(d=>setMedicines([...d].sort((a,b)=>a.medicamento.localeCompare(b.medicamento,'es')))).catch(()=>setError('No se pudo cargar el catálogo de medicamentos. Verifica que el backend esté activo.')); fetchApi<string[]>('/api/auth/specialties').then(d=>setSpecialties([...d].sort((a,b)=>a.localeCompare(b,'es')))).catch(()=>{}); },[]);
  const filteredMedicines=useMemo(()=>medicines.filter(m=>`${m.medicamento} ${m.active_ingredient||''}`.toLowerCase().includes(medicineSearch.toLowerCase())).slice(0,150),[medicines,medicineSearch]);
  const toggleMedicine=(name:string)=>setSelectedMedicines(prev=>prev.includes(name)?prev.filter(x=>x!==name):[...prev,name]);
@@ -24,8 +24,22 @@ export default function RegisterPage() {
   if(role==='PATIENT') body={...body,documentType,documentNumber,birthDate:birthDate||null,phone,weight:weight?Number(weight):null,height:height?Number(height):null,conditions,medications:selectedMedicines.join('\n')};
   if(role==='DOCTOR'){endpoint='/api/auth/register/doctor';body={...body,professionalRegistration,specialty,documentType:doctorDocumentType,documentNumber:doctorDocumentNumber,phone:doctorPhone,birthDate:doctorBirthDate||null,university,graduationYear:graduationYear?Number(graduationYear):null,yearsExperience:yearsExperience?Number(yearsExperience):null,consultationMode,professionalBio};}
   if(role==='FAMILY') endpoint='/api/auth/register/family';
-  await fetchApi(endpoint,{method:'POST',body:JSON.stringify(body)});setSuccess(role==='DOCTOR'?'Solicitud enviada. Un administrador debe aprobar tu cuenta antes de iniciar sesión.':'Registro exitoso. Ya puedes iniciar sesión.');setTimeout(()=>router.push('/login'),2500);
- }catch(e:any){setError(e.message||'No fue posible completar el registro.');}finally{setBusy(false)}}
+  await fetchApi(endpoint,{method:'POST',body:JSON.stringify(body)});
+  if(role==='DOCTOR'){setDoctorPending(true);window.scrollTo({top:0,behavior:'smooth'});return;}
+  setSuccess('Registro exitoso. Ya puedes iniciar sesión.');window.scrollTo({top:0,behavior:'smooth'});setTimeout(()=>router.push('/login'),2500);
+ }catch(e:any){setError(e.message||'No fue posible completar el registro.');window.scrollTo({top:0,behavior:'smooth'});}finally{setBusy(false)}}
+ if(doctorPending) return <main className="flex min-h-screen items-center justify-center bg-slate-50 px-4 py-10"><div className="w-full max-w-lg rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-sm">
+  <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-amber-100"><svg className="h-8 w-8 animate-spin text-amber-600 [animation-duration:3s]" fill="none" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" className="opacity-25"/><path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" strokeWidth="3" strokeLinecap="round"/></svg></div>
+  <h1 className="mt-5 text-2xl font-bold text-slate-900">Solicitud en revisión</h1>
+  <p className="mt-2 text-sm text-slate-600">Gracias, <b>{fullName}</b>. Tu registro como médico se envió correctamente y está <b>pendiente de aprobación</b> por un administrador.</p>
+  <div className="mt-5 space-y-2 rounded-2xl bg-slate-50 p-4 text-left text-sm text-slate-600">
+   <p><span className="font-semibold text-slate-800">Correo:</span> {email}</p>
+   <p><span className="font-semibold text-slate-800">Especialidad:</span> {specialty}</p>
+   <p><span className="font-semibold text-slate-800">Registro profesional:</span> {professionalRegistration}</p>
+  </div>
+  <p className="mt-5 text-xs text-amber-700">Mientras tu cuenta esté en revisión no podrás iniciar sesión. Cuando el administrador verifique tu registro profesional, podrás ingresar con tu correo y contraseña.</p>
+  <Link href="/login" className="mt-6 inline-block w-full rounded-xl bg-teal-700 px-4 py-3 font-semibold text-white transition hover:bg-teal-800">Ir a iniciar sesión</Link>
+ </div></main>;
  return <main className="min-h-screen bg-slate-50 px-4 py-10"><div className="mx-auto max-w-3xl rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-9">
   <div className="mb-7 text-center"><p className="text-sm font-bold uppercase tracking-[.2em] text-teal-700">Viatli</p><h1 className="mt-2 text-2xl font-bold text-slate-900">Crear una cuenta</h1><p className="mt-1 text-sm text-slate-500">Registra tus datos para comenzar.</p></div>
   {error&&<p role="alert" className="mb-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p>}{success&&<p role="status" className="mb-4 rounded-xl bg-teal-50 p-3 text-sm text-teal-800">{success}</p>}

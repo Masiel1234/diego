@@ -1007,7 +1007,7 @@ export default function VitaliLandingPage() {
             </Link>
 
             <Link
-              href="/login/usuario"
+              href="/login"
               className="inline-flex items-center justify-center gap-space-xs bg-primary-container text-on-primary font-label-lg text-label-lg px-space-xl py-3.5 rounded-lg hover:bg-primary transition-all text-center"
             >
               <span className="material-symbols-outlined text-[20px]">

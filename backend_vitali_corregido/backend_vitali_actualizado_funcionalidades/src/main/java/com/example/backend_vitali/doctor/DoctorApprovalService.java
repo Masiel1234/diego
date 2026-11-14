@@ -39,6 +39,7 @@ public class DoctorApprovalService {
         return doctorRepository
                 .findByUser_Status(AccountStatus.PENDING)
                 .stream()
+                .sorted((a, b) -> AppUser.NEWEST_FIRST.compare(a.getUser(), b.getUser()))
                 .map(this::toReviewResponse)
                 .toList();
     }

@@ -24,14 +24,17 @@ public class DoctorService {
     private final PatientRepository patientRepository;
     private final JdbcTemplate jdbc;
     private final AppointmentRepository appointmentRepository;
+    private final com.example.backend_vitali.patient.PatientTreatmentReader treatmentReader;
 
     public DoctorService(
             DoctorRepository doctorRepository,
             UserRepository userRepository,
             PatientRepository patientRepository,
             JdbcTemplate jdbc,
-            AppointmentRepository appointmentRepository
+            AppointmentRepository appointmentRepository,
+            com.example.backend_vitali.patient.PatientTreatmentReader treatmentReader
     ) {
+        this.treatmentReader = treatmentReader;
         this.doctorRepository = doctorRepository;
         this.userRepository = userRepository;
         this.patientRepository = patientRepository;
@@ -39,15 +42,14 @@ public class DoctorService {
         this.appointmentRepository = appointmentRepository;
     }
 
+    /** Pacientes asignados al médico, con sus tratamientos y dudas pendientes (más reciente primero). */
     @Transactional(readOnly = true)
-    public List<DoctorPatientSummary> getMyPatients() {
+    public List<java.util.Map<String, Object>> getMyPatients() {
         Long doctorId = CurrentUser.getId();
         getActiveUser(doctorId, Role.DOCTOR);
         return patientRepository.findByAssignedDoctor_Id(doctorId).stream()
-                .map(p -> new DoctorPatientSummary(
-                        p.getUser().getId(), p.getUser().getFullName(), p.getUser().getEmail(),
-                        p.getAvatarUrl(), p.getBirthDate(), p.getPhone(), p.getWeight(),
-                        p.getHeight(), p.getConditions(), p.getMedications()))
+                .sorted((a, b) -> AppUser.NEWEST_FIRST.compare(a.getUser(), b.getUser()))
+                .map(p -> treatmentReader.summary(p, true))
                 .toList();
     }
 
@@ -62,15 +64,12 @@ public class DoctorService {
         }
         var appointments = appointmentRepository.findByPatient_User_IdOrderByCreatedAtDesc(patientId);
         var consultations = jdbc.queryForList("""
-                SELECT id, id_paciente, id_medico, id_receta, mensaje_duda, respuesta_medico, estado, fecha_consulta
-                FROM consulta_medica WHERE id_paciente = ? ORDER BY id DESC
+                SELECT id, id_paciente, id_medico, id_receta, mensaje_duda, respuesta_medico, estado,
+                       fecha_consulta, fecha_respuesta
+                FROM consulta_medica WHERE id_paciente = ?
+                ORDER BY CASE WHEN estado = 'PENDIENTE' THEN 0 ELSE 1 END, id DESC
                 """, patientId);
-        var recipes = jdbc.queryForList("""
-                SELECT r.id, r.fecha_subida, r.estado_analisis, d.nombre_medicamento, d.dosis_indicada,
-                       d.unidades_por_dia, d.unidad_consumo, d.indicacion, d.dias_tratamiento
-                FROM receta r LEFT JOIN detalle_receta d ON d.id_receta = r.id
-                WHERE r.id_paciente = ? ORDER BY r.id DESC, d.id
-                """, patientId);
+        var recipes = treatmentReader.treatments(patientId);
         java.util.Map<String,Object> result = new java.util.HashMap<>();
         result.put("patient", new DoctorPatientSummary(patientId, p.getUser().getFullName(), p.getUser().getEmail(),
                 p.getAvatarUrl(), p.getBirthDate(), p.getPhone(), p.getWeight(), p.getHeight(),
