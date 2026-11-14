@@ -33,6 +33,14 @@ public class AdminService {
     private final DoctorRepository doctorRepository;
     private final FamilyLinkRepository familyLinkRepository;
     private final JdbcTemplate jdbc;
+    private final com.example.backend_vitali.patient.PatientTreatmentReader treatmentReader;
+    private final com.example.backend_vitali.doctor.DoctorCapacityService doctorCapacity;
+
+    /** Médicos con su número de pacientes y cupo (máximo configurable, 5 por defecto). */
+    @Transactional(readOnly = true)
+    public List<java.util.Map<String, Object>> getDoctorLoad() {
+        return doctorCapacity.load();
+    }
 
     public AdminService(
             UserRepository userRepository,
@@ -40,8 +48,12 @@ public class AdminService {
             PatientRepository patientRepository,
             DoctorRepository doctorRepository,
             FamilyLinkRepository familyLinkRepository,
-            JdbcTemplate jdbc
+            JdbcTemplate jdbc,
+            com.example.backend_vitali.patient.PatientTreatmentReader treatmentReader,
+            com.example.backend_vitali.doctor.DoctorCapacityService doctorCapacity
     ) {
+        this.treatmentReader = treatmentReader;
+        this.doctorCapacity = doctorCapacity;
         this.jdbc = jdbc;
         this.userRepository = userRepository;
         this.doctorApprovalService = doctorApprovalService;
@@ -57,6 +69,7 @@ public class AdminService {
                         u.getEmail().toLowerCase().contains(search.toLowerCase()))
                 .filter(u -> role == null || u.getRole() == role)
                 .filter(u -> status == null || u.getStatus() == status)
+                .sorted(AppUser.NEWEST_FIRST)
                 .map(u -> new AuthDtos.UserResponse(u.getId(), u.getFullName(), u.getEmail(), u.getRole(), u.getStatus()))
                 .toList();
     }
@@ -98,6 +111,8 @@ public class AdminService {
         jdbc.update("DELETE FROM family_invitations WHERE patient_user_id = ? OR LOWER(family_email) = LOWER(?)", id, target.getEmail());
         jdbc.update("DELETE FROM patient_reminders WHERE patient_user_id = ?", id);
         jdbc.update("DELETE FROM password_reset_tokens WHERE user_id = ?", id);
+        jdbc.update("DELETE FROM receta_documento WHERE id_paciente = ?", id);
+        jdbc.update("UPDATE receta SET id_medico = NULL WHERE id_medico = ?", id);
         jdbc.update("DELETE FROM detalle_receta WHERE id_receta IN (SELECT id FROM receta WHERE id_paciente = ?)", id);
         jdbc.update("UPDATE consulta_medica SET id_receta = NULL WHERE id_receta IN (SELECT id FROM receta WHERE id_paciente = ?)", id);
         jdbc.update("DELETE FROM receta WHERE id_paciente = ?", id);
@@ -110,20 +125,46 @@ public class AdminService {
         jdbc.update("DELETE FROM users WHERE id = ?", id);
     }
 
+    /** Pacientes asignados a un médico, con sus tratamientos. */
+    @Transactional(readOnly = true)
+    public List<java.util.Map<String, Object>> getDoctorPatients(Long doctorId) {
+        userRepository.findById(doctorId)
+                .filter(u -> u.getRole() == Role.DOCTOR)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Médico no encontrado."));
+        return patientRepository.findByAssignedDoctor_Id(doctorId).stream()
+                .sorted((a, b) -> AppUser.NEWEST_FIRST.compare(a.getUser(), b.getUser()))
+                .map(p -> treatmentReader.summary(p, false))
+                .toList();
+    }
+
+    /** Asigna un médico activo al paciente; con doctorId nulo, quita la asignación. */
     @Transactional
     public void assignDoctor(Long patientId, Long doctorId) {
         var patient = patientRepository.findByUserId(patientId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Paciente no encontrado."));
+        if (doctorId == null) {
+            patient.setAssignedDoctor(null);
+            patientRepository.save(patient);
+            return;
+        }
         var doctor = userRepository.findById(doctorId)
                 .filter(u -> u.getRole() == Role.DOCTOR && u.getStatus() == AccountStatus.ACTIVE)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Médico no disponible."));
+        doctorCapacity.assertCanAccept(doctor, patient.getAssignedDoctor() == null ? null : patient.getAssignedDoctor().getId());
         patient.setAssignedDoctor(doctor);
         patientRepository.save(patient);
     }
 
     @Transactional(readOnly = true)
     public List<com.example.backend_vitali.admin.AdminDtos.AdminLinkResponse> getLinks() {
-        return familyLinkRepository.findAll().stream().filter(link -> {
+        // Médico asignado de todos los pacientes en una sola consulta (antes era una por vínculo).
+        java.util.Map<Long, AppUser> doctorByPatient = new java.util.HashMap<>();
+        patientRepository.findAll().forEach(p -> {
+            if (p.getAssignedDoctor() != null) doctorByPatient.put(p.getUser().getId(), p.getAssignedDoctor());
+        });
+        return familyLinkRepository.findAll().stream()
+                .sorted(java.util.Comparator.comparing(FamilyLink::getId).reversed())
+                .filter(link -> {
             try {
                 link.getPatient().getFullName();
                 link.getFamily().getFullName();
@@ -134,7 +175,7 @@ public class AdminService {
         }).map(link -> {
             var patient = link.getPatient();
             var family = link.getFamily();
-            var doctor = patientRepository.findByUserId(patient.getId()).map(p -> p.getAssignedDoctor()).orElse(null);
+            var doctor = doctorByPatient.get(patient.getId());
             return new com.example.backend_vitali.admin.AdminDtos.AdminLinkResponse(
                     link.getId(), patient.getId(), patient.getFullName(),
                     doctor == null ? null : doctor.getId(), doctor == null ? null : doctor.getFullName(),

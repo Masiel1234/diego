@@ -16,6 +16,13 @@ import java.time.LocalDateTime;
 )
 public class AppUser {
 
+    /** Orden de listados: el usuario creado más recientemente primero. */
+    public static final java.util.Comparator<AppUser> NEWEST_FIRST =
+            java.util.Comparator.comparing(AppUser::getCreatedAt,
+                            java.util.Comparator.nullsLast(java.util.Comparator.reverseOrder()))
+                    .thenComparing(AppUser::getId,
+                            java.util.Comparator.nullsLast(java.util.Comparator.reverseOrder()));
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;

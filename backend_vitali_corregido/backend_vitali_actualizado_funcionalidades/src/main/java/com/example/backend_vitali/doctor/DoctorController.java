@@ -25,7 +25,7 @@ public class DoctorController {
     }
 
     @GetMapping("/patients")
-    public java.util.List<DoctorDtos.DoctorPatientSummary> getMyPatients() {
+    public java.util.List<java.util.Map<String, Object>> getMyPatients() {
         return doctorService.getMyPatients();
     }
 

@@ -2,7 +2,8 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { clearSession } from "@/lib/session";
 import {
   Activity,
   Bell,
@@ -16,6 +17,9 @@ import {
   ShieldCheck,
   UserRound,
 } from "lucide-react";
+import { Home } from "lucide-react";
+import PatientNotificationBell from "@/components/PatientNotificationBell";
+import UserMenu from "@/components/UserMenu";
 
 const navigation = [
   { label: "Dashboard", href: "/dashboard/patient", icon: LayoutDashboard },
@@ -29,6 +33,7 @@ export default function PatientLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   const pathname = usePathname();
+  const router = useRouter();
 
   return (
     <div className="min-h-screen bg-[#F5F8FC] text-slate-800">
@@ -90,13 +95,14 @@ export default function PatientLayout({
             </p>
           </div>
 
-          <Link
-            href="/dashboard/patient"
-            className="mt-3 flex items-center gap-3 rounded-xl px-3 py-3 text-sm text-slate-500 hover:bg-slate-50"
+          <button
+            type="button"
+            onClick={() => { clearSession(); router.replace("/login"); }}
+            className="mt-3 flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm text-slate-500 hover:bg-red-50 hover:text-red-700"
           >
             <LogOut size={18} />
-            Volver al inicio
-          </Link>
+            Cerrar sesión
+          </button>
         </div>
       </aside>
 
@@ -112,16 +118,19 @@ export default function PatientLayout({
             Espacio del paciente
           </div>
 
+          <Link
+            href="/dashboard/patient"
+            aria-current={pathname === "/dashboard/patient" ? "page" : undefined}
+            className={`ml-3 inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm font-semibold transition ${
+              pathname === "/dashboard/patient" ? "bg-teal-50 text-teal-800" : "text-slate-600 hover:bg-slate-50"
+            }`}
+          >
+            <Home size={17} /> Inicio
+          </Link>
+
           <div className="ml-auto flex items-center gap-3">
-            <button
-              type="button"
-              aria-label="Notificaciones"
-              className="rounded-xl border border-slate-200 p-2.5 text-slate-600 hover:bg-slate-50"
-              onClick={() => window.location.assign("/dashboard/patient/consultations")}
-            >
-              <Bell size={18} />
-            </button>
-            
+            <PatientNotificationBell />
+            <UserMenu />
           </div>
         </header>
 

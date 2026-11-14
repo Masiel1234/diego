@@ -74,8 +74,13 @@ public class JwtAuthFilter extends OncePerRequestFilter {
              * Evitamos sobrescribir una autenticación
              * que ya exista.
              */
+            /*
+             * La firma y la expiración se validan antes de ir a la base,
+             * y el usuario se consulta una sola vez por request.
+             */
             if (SecurityContextHolder.getContext()
-                    .getAuthentication() == null) {
+                    .getAuthentication() == null
+                    && jwtService.isTokenValid(token, userId)) {
 
                 AppUser appUser =
                         userRepository.findById(userId)
@@ -86,16 +91,10 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                  */
                 if (appUser != null
                         && appUser.getStatus()
-                        == AccountStatus.ACTIVE
-                        && jwtService.isTokenValid(
-                        token,
-                        userId
-                )) {
+                        == AccountStatus.ACTIVE) {
 
                     UserDetails userDetails =
-                            userDetailsService.loadUserById(
-                                    userId
-                            );
+                            userDetailsService.fromUser(appUser);
 
                     UsernamePasswordAuthenticationToken authentication =
                             new UsernamePasswordAuthenticationToken(

@@ -31,3 +31,9 @@ build/
 
 ### VS Code ###
 .vscode/
+
+### Base de datos local (contiene datos personales) ###
+vitali.db
+vitali.db-journal
+vitali.db-wal
+vitali.db-shm

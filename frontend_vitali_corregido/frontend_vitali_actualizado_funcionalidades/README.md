@@ -1,36 +1,49 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Viatli — Frontend
 
-## Getting Started
+Aplicación web (Next.js 16 + React 19 + Tailwind 4) para pacientes, médicos, familiares y administradores. Consume la API REST del backend Spring Boot (`backend_vitali_actualizado_funcionalidades`).
 
-First, run the development server:
+## Requisitos
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+- Node.js compatible con Next.js 16.
+- Backend en ejecución, por defecto en `http://localhost:8080`.
+
+## Puesta en marcha
+
+```powershell
+npm install
+Copy-Item .env.example .env.local   # en Linux/macOS: cp .env.example .env.local
+npm run dev                         # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+`NEXT_PUBLIC_API_URL` (en `.env.local`) indica la URL del backend.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+`npm run dev` compila cada página la primera vez que se abre, así que la primera navegación es lenta. Para una demostración usa `npm run build` seguido de `npm start`. Si instalas paquetes con el servidor de desarrollo encendido, reinícialo.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Roles y pantallas
 
-## Learn More
+| Rol | Inicio | Funciones principales |
+| --- | --- | --- |
+| Paciente | `/dashboard/patient` | Perfil, recetas y medicamentos (análisis de dosis e interacciones, subir foto o PDF de la receta), citas, dudas al médico con notificaciones |
+| Médico | `/dashboard/doctor` | Pacientes asignados con buscador, ficha con tratamiento, asignar o finalizar tratamientos, responder dudas, citas |
+| Familiar | `/dashboard/family` | Invitaciones y vínculo con el paciente |
+| Administrador | `/dashboard/admin` | Aprobación de médicos, gestión de pacientes, médicos, familiares, vínculos, recetas y catálogo |
 
-To learn more about Next.js, take a look at the following resources:
+Todas las pantallas de los paneles comparten una barra superior con botón **Inicio** y menú de cuenta (nombre, rol y cerrar sesión).
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Reglas de negocio visibles en el frontend
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- **Sesión:** se cierra tras 15 minutos sin actividad, con aviso un minuto antes. El token dura 20 minutos y se renueva solo mientras el usuario está activo (`components/SessionGuard.tsx`).
+- **Cupo de médicos:** cada médico puede tener como máximo 5 pacientes. El backend lo valida (`app.doctor.max-patients`) y el panel de administración muestra el cupo y bloquea a los médicos llenos.
+- **Medicamentos:** el análisis es orientativo. Se basa en el catálogo y en las reglas de dosis de la base de datos y no reemplaza al médico.
 
-## Deploy on Vercel
+## Estructura
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```
+app/            Rutas (App Router). app/dashboard/layout.tsx aplica el cierre de sesión a todos los paneles.
+components/     Componentes compartidos (menú de usuario, análisis de medicamentos, subida de recetas, etc.).
+lib/api.ts      Cliente HTTP con el token JWT.
+lib/session.ts  Datos de sesión, rol e inicio de cada rol.
+lib/medications.ts  Nombres en español, presentaciones y estados de receta.
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+`README-INTEGRACION.md` contiene notas de una etapa anterior de la integración. Algunos puntos pendientes que menciona (seguridad de recetas y consultas, revisión médica) ya están implementados.

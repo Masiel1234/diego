@@ -14,11 +14,11 @@ import {
   Clock3,
   HeartPulse,
   LoaderCircle,
-  LogOut,
   Mail,
   Plus,
   RefreshCw,
   ShieldCheck,
+  Upload,
   UserRound,
   Users,
   XCircle,
@@ -213,14 +213,6 @@ export default function PatientDashboard() {
     }
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem("token");
-    localStorage.removeItem("userRole");
-      localStorage.removeItem("userId");
-      localStorage.removeItem("userEmail");
-    router.replace("/login");
-  };
-
   if (loading) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-[#F5F8FC] px-4">
@@ -243,41 +235,6 @@ export default function PatientDashboard() {
 
   return (
     <main className="min-h-screen bg-[#F5F8FC] text-slate-800">
-      {/* Barra superior */}
-      <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 backdrop-blur">
-        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center gap-2 sm:gap-3">
-            <Link
-              href="/dashboard/patient/profile"
-              aria-label="Mi perfil"
-              className="flex h-10 w-10 items-center justify-center rounded-full bg-teal-100 font-semibold text-teal-800"
-            >
-              {getInitials(patientData?.fullName)}
-            </Link>
-            <button
-              type="button"
-              onClick={() => void loadPatientData(true)}
-              disabled={refreshing}
-              aria-label="Actualizar información"
-              className="rounded-xl border border-slate-200 p-2.5 text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
-            >
-              <RefreshCw
-                size={18}
-                className={refreshing ? "animate-spin" : ""}
-              />
-            </button>
-            <button
-              type="button"
-              onClick={handleLogout}
-              className="inline-flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-red-50 hover:text-red-700"
-            >
-              <LogOut size={17} />
-              <span className="hidden sm:inline">Cerrar sesión</span>
-            </button>
-          </div>
-        </div>
-      </header>
-
       <div className="mx-auto max-w-7xl space-y-7 px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
         {/* Bienvenida */}
         <section className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-teal-700 to-cyan-700 p-6 text-white sm:p-9">
@@ -296,13 +253,31 @@ export default function PatientDashboard() {
               al día y consulta tu información desde un solo lugar.
             </p>
 
-            <Link
-              href="/dashboard/patient/profile"
-              className="mt-6 inline-flex items-center gap-2 rounded-xl bg-white px-4 py-3 text-sm font-semibold text-teal-800 transition hover:bg-teal-50"
-            >
-              Consultar mi perfil
-              <ArrowRight size={17} />
-            </Link>
+            <div className="mt-6 flex flex-wrap gap-3">
+              <Link
+                href="/dashboard/patient/profile"
+                className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-3 text-sm font-semibold text-teal-800 transition hover:bg-teal-50"
+              >
+                Consultar mi perfil
+                <ArrowRight size={17} />
+              </Link>
+              <Link
+                href="/dashboard/patient/recipes#subir"
+                className="inline-flex items-center gap-2 rounded-xl border border-white/60 px-4 py-3 text-sm font-semibold text-white transition hover:bg-white/10"
+              >
+                <Upload size={17} />
+                Subir mi receta
+              </Link>
+              <button
+                type="button"
+                onClick={() => void loadPatientData(true)}
+                disabled={refreshing}
+                aria-label="Actualizar información"
+                className="inline-flex items-center gap-2 rounded-xl border border-white/40 px-3 py-3 text-sm text-white transition hover:bg-white/10 disabled:opacity-50"
+              >
+                <RefreshCw size={17} className={refreshing ? "animate-spin" : ""} />
+              </button>
+            </div>
           </div>
 
           <HeartPulse
@@ -432,7 +407,8 @@ export default function PatientDashboard() {
         {/* Accesos a módulos conectados al backend */}
         <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {[
-            { title: "Mis recetas y medicamentos", description: "Registra y consulta medicamentos y fórmulas.", href: "/dashboard/patient/recipes", icon: Pill },
+            { title: "Mis recetas y medicamentos", description: "Tus tratamientos y la revisión de dosis y compatibilidad.", href: "/dashboard/patient/recipes", icon: Pill },
+            { title: "Subir receta", description: "Sube una foto o PDF de tu fórmula y registra sus medicamentos.", href: "/dashboard/patient/recipes#subir", icon: Upload },
             { title: "Citas médicas", description: "Solicita una cita y revisa su confirmación.", href: "/dashboard/patient/appointments", icon: CalendarDays },
             { title: "Recordatorios", description: "Programa fecha, hora y motivo para tus medicamentos.", href: "/dashboard/patient/reminders", icon: Bell },
             { title: "Consultas al médico", description: "Envía dudas sobre tus tratamientos y lee respuestas.", href: "/dashboard/patient/consultations", icon: Mail },

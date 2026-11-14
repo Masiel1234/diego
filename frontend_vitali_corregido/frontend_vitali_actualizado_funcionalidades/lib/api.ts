@@ -16,6 +16,8 @@ export async function fetchApi<T = any>(endpoint: string, options: RequestInit =
 
   if (!response.ok) {
     if (response.status === 401 && typeof window !== "undefined") {
+      if (token) sessionStorage.setItem("sessionExpired", "expired");
+      localStorage.removeItem("lastActivity");
       localStorage.removeItem("token");
       localStorage.removeItem("userRole");
       localStorage.removeItem("userId");

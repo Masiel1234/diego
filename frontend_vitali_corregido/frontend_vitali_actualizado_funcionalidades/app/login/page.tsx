@@ -1,8 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { fetchApi } from '@/lib/api';
+import { markActivity, SESSION_EXPIRED_FLAG } from '@/components/SessionGuard';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -12,7 +13,18 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [forgotMode, setForgotMode] = useState(false);
   const [forgotSent, setForgotSent] = useState(false);
+  const [notice, setNotice] = useState('');
   const router = useRouter();
+
+  // Aviso cuando la sesión anterior se cerró sola (inactividad o token vencido).
+  useEffect(() => {
+    const reason = sessionStorage.getItem(SESSION_EXPIRED_FLAG);
+    if (!reason) return;
+    sessionStorage.removeItem(SESSION_EXPIRED_FLAG);
+    setNotice(reason === 'idle'
+      ? 'Tu sesión se cerró por 15 minutos de inactividad. Inicia sesión de nuevo.'
+      : 'Tu sesión expiró. Inicia sesión de nuevo.');
+  }, []);
 
   const handleForgot = async (e: React.FormEvent) => {
     e.preventDefault(); setErrorMsg(''); setLoading(true);
@@ -38,6 +50,7 @@ export default function LoginPage() {
       localStorage.setItem('userId', String(data.user.id));
       localStorage.setItem('userEmail', data.user.email);
       localStorage.setItem('userName', data.user.fullName || '');
+      markActivity();
 
       // Redirección basada en el rol del usuario
       switch (data.user.role) {
@@ -72,6 +85,12 @@ export default function LoginPage() {
           <h1 className="text-2xl font-bold text-gray-900">Iniciar Sesión - Vitali</h1>
           <p className="text-sm text-gray-500 mt-1">Ingresa a tu cuenta médica</p>
         </div>
+
+        {notice && !errorMsg && (
+          <div role="status" className="rounded-md border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+            {notice}
+          </div>
+        )}
 
         {/* Mensaje de Error Visible en la Interfaz */}
         {errorMsg && (

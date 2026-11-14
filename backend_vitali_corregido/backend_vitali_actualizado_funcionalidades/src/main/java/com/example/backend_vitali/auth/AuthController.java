@@ -62,4 +62,10 @@ public class AuthController {
 
         return ResponseEntity.ok(response);
     }
+
+    /** Renueva el token de la sesión actual (requiere un token vigente). */
+    @PostMapping("/refresh")
+    public LoginResponse refresh() {
+        return authService.refresh(com.example.backend_vitali.security.CurrentUser.getId());
+    }
 }
