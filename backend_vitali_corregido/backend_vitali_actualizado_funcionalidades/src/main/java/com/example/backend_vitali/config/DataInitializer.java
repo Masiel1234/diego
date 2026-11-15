@@ -30,12 +30,13 @@ public class DataInitializer {
     }
 
     private void createAdminUser() {
-        AppUser admin = new AppUser();
-        admin.setFullName("Administrador del Sistema");
-        admin.setEmail("admin@vitali.com");
-        admin.setPasswordHash(passwordEncoder.encode("admin123"));
-        admin.setRole(Role.ADMIN);
-        admin.setStatus(AccountStatus.ACTIVE);
+        AppUser admin = new AppUser(
+            "Administrador del Sistema",
+            "admin@vitali.com",
+            passwordEncoder.encode("admin123"),
+            Role.ADMIN,
+            AccountStatus.ACTIVE
+        );
 
         userRepository.save(admin);
         System.out.println("✅ Usuario administrador creado:");
@@ -45,30 +46,33 @@ public class DataInitializer {
 
     private void createSampleUsers() {
         // Doctor de prueba
-        AppUser doctor = new AppUser();
-        doctor.setFullName("Dr. Juan Pérez");
-        doctor.setEmail("doctor@vitali.com");
-        doctor.setPasswordHash(passwordEncoder.encode("doctor123"));
-        doctor.setRole(Role.DOCTOR);
-        doctor.setStatus(AccountStatus.ACTIVE);
+        AppUser doctor = new AppUser(
+            "Dr. Juan Pérez",
+            "doctor@vitali.com",
+            passwordEncoder.encode("doctor123"),
+            Role.DOCTOR,
+            AccountStatus.ACTIVE
+        );
         userRepository.save(doctor);
 
         // Paciente de prueba
-        AppUser patient = new AppUser();
-        patient.setFullName("María García");
-        patient.setEmail("paciente@vitali.com");
-        patient.setPasswordHash(passwordEncoder.encode("paciente123"));
-        patient.setRole(Role.PATIENT);
-        patient.setStatus(AccountStatus.ACTIVE);
+        AppUser patient = new AppUser(
+            "María García",
+            "paciente@vitali.com",
+            passwordEncoder.encode("paciente123"),
+            Role.PATIENT,
+            AccountStatus.ACTIVE
+        );
         userRepository.save(patient);
 
         // Familiar de prueba
-        AppUser family = new AppUser();
-        family.setFullName("Carlos García");
-        family.setEmail("familiar@vitali.com");
-        family.setPasswordHash(passwordEncoder.encode("familiar123"));
-        family.setRole(Role.FAMILY);
-        family.setStatus(AccountStatus.ACTIVE);
+        AppUser family = new AppUser(
+            "Carlos García",
+            "familiar@vitali.com",
+            passwordEncoder.encode("familiar123"),
+            Role.FAMILY,
+            AccountStatus.ACTIVE
+        );
         userRepository.save(family);
 
         System.out.println("✅ Usuarios de prueba creados:");
